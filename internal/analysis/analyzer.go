@@ -48,8 +48,8 @@ func AnalyzeCPUUsagePattern(cfg *config.Config) {
 
 // A simple algorithm to detect a spike
 func checkAndReportSpike(cfg *config.Config, values []model.SamplePair, instance string) {
-	const spikeThreshold = 70.0 // CPU %
-	const baseThreshold = 20.0  // Normal CPU %
+	const spikeThreshold = 10.0 // CPU %
+	const baseThreshold = 2.0  // Normal CPU %
 	const jumpPercentage = 50.0 // The jump must be at least 50%
 
 	var spikeStartTime, spikeEndTime time.Time
