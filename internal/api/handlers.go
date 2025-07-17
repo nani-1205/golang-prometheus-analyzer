@@ -18,8 +18,21 @@ var templates = template.Must(template.ParseFiles("web/templates/index.html"))
 func RegisterHandlers(r *mux.Router, cfg *config.Config) {
 	r.HandleFunc("/", homeHandler).Methods("GET")
 	r.HandleFunc("/api/reports", getReportsHandler).Methods("GET")
-	r.HandleFunc("/api/analyze/cpu", func(w http.ResponseWriter, r *http.Request) {
-		analyzeCPUHandler(w, r, cfg)
+
+	// --- UPDATED ENDPOINTS ---
+
+	// Endpoint for the original "transient spike" analysis
+	r.HandleFunc("/api/analyze/cpu-spike", func(w http.ResponseWriter, r *http.Request) {
+		go analysis.AnalyzeCPUUsageSpikePattern(cfg)
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"message": "CPU spike analysis started."})
+	}).Methods("POST")
+
+	// Endpoint for the NEW "sustained high load" analysis
+	r.HandleFunc("/api/analyze/cpu-high-load", func(w http.ResponseWriter, r *http.Request) {
+		go analysis.AnalyzeSustainedHighCPU(cfg)
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(map[string]string{"message": "Sustained high CPU analysis started."})
 	}).Methods("POST")
 }
 
@@ -39,11 +52,4 @@ func getReportsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(reports)
-}
-
-func analyzeCPUHandler(w http.ResponseWriter, r *http.Request, cfg *config.Config) {
-	// Run analysis in a goroutine so the API call returns immediately
-	go analysis.AnalyzeCPUUsagePattern(cfg)
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(map[string]string{"message": "CPU analysis started in the background."})
 }

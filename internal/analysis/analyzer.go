@@ -7,35 +7,36 @@ import (
 	"time"
 
 	"github.com/prometheus/common/model"
-	"github.com/your-username/golang-prometheus-analyzer/internal/config"
-	"github.com/your-username/golang-prometheus-analyzer/internal/database"
-	"github.com/your-username/golang-prometheus-analyzer/internal/models"
-	"github.com/your-username/golang-prometheus-analyzer/internal/notification"
-	prom "github.com/your-username/golang-prometheus-analyzer/internal/prometheus"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/config"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/database"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/models"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/notification"
+	prom "github.com/nani-1205/golang-prometheus-analyzer/internal/prometheus"
 )
 
-// AnalyzeCPUUsagePattern is our example analyzer.
-// It checks for a sudden spike in CPU usage in a specific time window.
-func AnalyzeCPUUsagePattern(cfg *config.Config) {
-	log.Println("Running CPU usage pattern analysis...")
+// PromQL query to get average CPU usage (non-idle time) per instance
+const cpuUsageQuery = `100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)`
+
+// --- 1. ORIGINAL TRANSIENT SPIKE ANALYZER ---
+// This analyzer detects a "spike and return to normal" pattern.
+
+// AnalyzeCPUUsageSpikePattern is our example analyzer for transient spikes.
+func AnalyzeCPUUsageSpikePattern(cfg *config.Config) {
+	log.Println("Running Transient CPU Spike analysis...")
+
 	now := time.Now()
-	// Let's analyze the last hour's data.
 	start := now.Add(-1 * time.Hour)
 	end := now
 
-	// PromQL query to get average CPU usage (non-idle time)
-	// This gives a value between 0-100 per instance
-	query := `100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[2m])) * 100)`
-
-	result, err := prom.QueryRange(cfg, query, start, end, 1*time.Minute)
+	result, err := prom.QueryRange(cfg, cpuUsageQuery, start, end, 1*time.Minute)
 	if err != nil {
-		log.Printf("Error querying Prometheus: %v", err)
+		log.Printf("Error querying Prometheus for spike analysis: %v", err)
 		return
 	}
 
 	matrix, ok := result.(model.Matrix)
 	if !ok {
-		log.Printf("Error: Expected a matrix result type, got %T", result)
+		log.Printf("Spike Analysis Error: Expected a matrix result type, got %T", result)
 		return
 	}
 
@@ -43,14 +44,13 @@ func AnalyzeCPUUsagePattern(cfg *config.Config) {
 		instance := string(stream.Metric["instance"])
 		checkAndReportSpike(cfg, stream.Values, instance)
 	}
-	log.Println("CPU usage pattern analysis finished.")
+	log.Println("Transient CPU Spike analysis finished.")
 }
 
-// A simple algorithm to detect a spike
+// checkAndReportSpike is a helper to find a low -> high -> low pattern.
 func checkAndReportSpike(cfg *config.Config, values []model.SamplePair, instance string) {
-	const spikeThreshold = 10.0 // CPU %
-	const baseThreshold = 2.0  // Normal CPU %
-	const jumpPercentage = 50.0 // The jump must be at least 50%
+	const spikeThreshold = 70.0 // The peak of the spike (e.g., 70%)
+	const baseThreshold = 20.0  // The normal state (e.g., 20%)
 
 	var spikeStartTime, spikeEndTime time.Time
 	inSpike := false
@@ -71,27 +71,97 @@ func checkAndReportSpike(cfg *config.Config, values []model.SamplePair, instance
 			inSpike = false
 			spikeEndTime = currTime
 
-			// We found a complete spike pattern. Let's report it.
-			details := fmt.Sprintf("Instance '%s' CPU usage spiked from ~%.2f%% to %.2f%% and returned to normal.", instance, baseThreshold, spikeThreshold)
+			details := fmt.Sprintf("Instance '%s' CPU usage spiked from ~%.2f%% to over %.2f%% and returned to normal.", instance, baseThreshold, spikeThreshold)
 			report := models.Report{
-				MetricName:      "cpu_usage",
-				PatternDetected: "Sudden Morning Spike",
+				MetricName:      "cpu_transient_spike",
+				PatternDetected: "Transient CPU Spike",
 				Severity:        "warning",
 				StartTime:       spikeStartTime,
 				EndTime:         spikeEndTime,
 				Details:         details,
 			}
 
-			// Save to DB
 			reportID, err := database.InsertReport(report)
 			if err != nil {
-				log.Printf("Error saving report to DB: %v", err)
+				log.Printf("Error saving spike report to DB: %v", err)
 				continue
 			}
 			log.Printf("Detected CPU spike pattern for instance %s. Report ID: %d", instance, reportID)
-
-			// Send notifications
 			notification.SendAlert(cfg, report)
 		}
 	}
+}
+
+// --- 2. NEW SUSTAINED HIGH LOAD ANALYZER ---
+// This analyzer detects when CPU usage stays high for a period. This will trigger with your load.sh script.
+
+// AnalyzeSustainedHighCPU checks if CPU has been consistently high.
+func AnalyzeSustainedHighCPU(cfg *config.Config) {
+	log.Println("Running Sustained High CPU analysis...")
+
+	// Thresholds for this specific analysis
+	const highLoadThreshold = 80.0 // Trigger if CPU is above 80%
+	const cooldownDuration = 30 * time.Minute // Don't re-alert for the same issue for 30 mins
+
+	now := time.Now()
+	// We only need to check the last few minutes for a current high load state
+	start := now.Add(-5 * time.Minute)
+	end := now
+
+	result, err := prom.QueryRange(cfg, cpuUsageQuery, start, end, 1*time.Minute)
+	if err != nil {
+		log.Printf("Error querying Prometheus for high load analysis: %v", err)
+		return
+	}
+
+	matrix, ok := result.(model.Matrix)
+	if !ok {
+		log.Printf("High Load Analysis Error: Expected a matrix result type, got %T", result)
+		return
+	}
+
+	for _, stream := range matrix {
+		instance := string(stream.Metric["instance"])
+
+		// Check the most recent data point
+		if len(stream.Values) == 0 {
+			continue
+		}
+		latestSample := stream.Values[len(stream.Values)-1]
+		latestValue := float64(latestSample.Value)
+		latestTime := latestSample.Timestamp.Time()
+
+		if latestValue >= highLoadThreshold {
+			// ANTI-SPAM: Check if we've already reported this recently
+			hasRecent, err := database.CheckForRecentReport("cpu_sustained_high", instance, cooldownDuration)
+			if err != nil {
+				log.Printf("Error checking for recent reports: %v", err)
+				continue
+			}
+
+			if !hasRecent {
+				// No recent report, so let's create a new one!
+				details := fmt.Sprintf("Instance '%s' is under sustained high CPU load, currently at %.2f%% (Threshold: >%.2f%%).", instance, latestValue, highLoadThreshold)
+				report := models.Report{
+					MetricName:      "cpu_sustained_high",
+					PatternDetected: "Sustained High CPU Load",
+					Severity:        "critical",
+					StartTime:       latestTime, // The event is happening now
+					EndTime:         latestTime,
+					Details:         details,
+				}
+
+				reportID, err := database.InsertReport(report)
+				if err != nil {
+					log.Printf("Error saving high load report to DB: %v", err)
+					continue
+				}
+				log.Printf("Detected Sustained High CPU on instance %s. Report ID: %d", instance, reportID)
+				notification.SendAlert(cfg, report)
+			} else {
+				log.Printf("Sustained High CPU on %s is ongoing, but already reported recently. Suppressing new alert.", instance)
+			}
+		}
+	}
+	log.Println("Sustained High CPU analysis finished.")
 }

@@ -4,10 +4,11 @@ package database
 import (
 	"database/sql"
 	"fmt"
+	"time" // Make sure 'time' is imported
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/your-username/golang-prometheus-analyzer/internal/config"
-	"github.com/your-username/golang-prometheus-analyzer/internal/models"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/config"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/models"
 )
 
 var db *sql.DB
@@ -59,4 +60,29 @@ func GetAllReports() ([]models.Report, error) {
 		reports = append(reports, r)
 	}
 	return reports, nil
+}
+
+// --- NEW FUNCTION ---
+// CheckForRecentReport checks if a report for a specific metric/instance exists within the cooldown period.
+func CheckForRecentReport(metricName string, instance string, cooldown time.Duration) (bool, error) {
+	var exists bool
+	query := `
+		SELECT EXISTS(
+			SELECT 1 FROM reports 
+			WHERE metric_name = ? 
+			AND details LIKE ? 
+			AND created_at >= ?
+		)`
+
+	// We use LIKE to find the instance name within the details string
+	instancePattern := "%" + instance + "%"
+
+	// Calculate the time threshold
+	sinceTime := time.Now().Add(-cooldown)
+
+	err := db.QueryRow(query, metricName, instancePattern, sinceTime).Scan(&exists)
+	if err != nil {
+		return false, err
+	}
+	return exists, nil
 }
