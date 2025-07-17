@@ -33,6 +33,7 @@ func homeHandler(w http.ResponseWriter, r *http.Request) {
 func getReportsHandler(w http.ResponseWriter, r *http.Request) {
 	reports, err := database.GetAllReports()
 	if err != nil {
+		log.Printf("Error fetching reports: %v", err)
 		http.Error(w, "Failed to fetch reports", http.StatusInternalServerError)
 		return
 	}
