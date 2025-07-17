@@ -4,7 +4,7 @@ package api
 import (
 	"encoding/json"
 	"html/template"
-	//"log"//
+	"log"
 	"net/http"
 
 	"github.com/gorilla/mux"
