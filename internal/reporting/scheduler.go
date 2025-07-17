@@ -5,25 +5,29 @@ import (
 	"log"
 
 	"github.com/robfig/cron/v3"
-	"github.com/your-username/golang-prometheus-analyzer/internal/analysis"
-	"github.com/your-username/golang-prometheus-analyzer/internal/config"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/analysis"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/config"
 )
 
 func StartScheduler(cfg *config.Config) {
 	c := cron.New()
 
-	// Schedule CPU analysis every hour at the 5-minute mark
+	// Schedule our analysis jobs.
+	// This function will run at 5 minutes past every hour.
 	c.AddFunc("5 * * * *", func() {
-		analysis.AnalyzeCPUUsagePattern(cfg)
+		// Run both types of analysis, one after the other.
+		
+		// 1. Run the analysis for transient spikes (low -> high -> low)
+		analysis.AnalyzeCPUUsageSpikePattern(cfg)
+
+		// 2. Run the analysis for sustained high load
+		analysis.AnalyzeSustainedHighCPU(cfg)
 	})
 
-	// TODO: Add more analysis jobs for other metrics (memory, disk, etc.)
+	// You can add more scheduled jobs for other metrics here.
+	// For example, check memory usage at 10 minutes past the hour.
 	// c.AddFunc("10 * * * *", func() { analysis.AnalyzeMemoryUsage(cfg) })
 
 	log.Println("Cron scheduler initialized.")
 	c.Start()
 }
-
-// NOTE: A function for a full "daily PDF report" would be added here.
-// It would query the DB for all reports in the last 24 hours and use the
-// PDF generator to create and email the report.
