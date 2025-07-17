@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/your-username/golang-prometheus-analyzer/internal/config"
 	"github.com/your-username/golang-prometheus-analyzer/internal/models"
