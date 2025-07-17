@@ -8,9 +8,9 @@ import (
 	"net/http"
 
 	"github.com/gorilla/mux"
-	"github.com/your-username/golang-prometheus-analyzer/internal/analysis"
-	"github.com/your-username/golang-prometheus-analyzer/internal/config"
-	"github.com/your-username/golang-prometheus-analyzer/internal/database"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/analysis"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/config"
+	"github.com/nani-1205/golang-prometheus-analyzer/internal/database"
 )
 
 var templates = template.Must(template.ParseFiles("web/templates/index.html"))
